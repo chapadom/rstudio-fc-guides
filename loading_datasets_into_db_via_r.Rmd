@@ -1,0 +1,171 @@
+---
+title: "loading_datasets_into_db_via_r"
+author: "Mili Chapado"
+date: "07/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Navigating the FC Database via R: 
+## Loading and Extracting Data
+
+*Scroll to the bottom of this guide for a list of resources and FC examples.*
+
+FC DB Conventions:
+Use prefixes in table names for organization, example: Rising Rents project tables that contain IPUMS data are named rr_ipums108, etc.
+Use “geom” as name for spatial column
+Put geom column at the end (far right) of a dataset
+Use CRS=2263 (using st_transform()) for spatial data 
+
+Packages to Work with the FC Database - Setting up
+Learn more about fcr - the Furman Center package.
+
+
+```{r}
+# Set up
+library(DBI)
+library(fcr) # fc package
+library(tidyverse) # for function tbl()
+library(sf) # to work with spatial data
+library(tigris) # census shapefiles
+
+con <- fcdb_connect()
+projec_dir <- "project folder path"
+```
+
+## Exploring Data in the FC Database
+
+```{r}
+# prints all the table names in the database on the R console
+dbListTables(con)
+
+# prints all the column names of a specified table on the R console
+dbListFields(con, "tablename")
+
+# Connect with table - then print and/or glimpse to get a snapshot of the contents 
+tablename_r <- tbl(con, "tablename")
+tablename_r 
+
+glimpse(tablename_r)
+```
+
+
+## Extracting Data from the FC Database 
+
+You can filter to just get the data you need before collecting - depending on the size of the data, collect() can take a long time - even hours! You can also export to csv to save the query and not need to collect every time you need this data.
+
+```{r}
+tablename_r %>%
+  filter(year=2010) %>%
+  collect() %>% 
+  write_csv(str_glue("{project_dir}/file_name.csv"), na = "")
+```
+
+
+## Uploading Data to the FC Database
+
+To upload data to the database, you need to create a new table and specify the data type for each column. Then, attach the data to the table.
+
+If the append argument is TRUE, the rows in an existing table are preserved, and the new data is appended. If the table doesn't exist yet, it is created.
+If the temporary argument is FALSE (default), the table will be saved in the DB (until it is deleted/dropped). If TRUE, it will only be available for the duration of the DB connection.
+
+```{r}
+# create table and specify columns and data type
+dbCreateTable(
+  con,
+  "table_name",
+  fields = c(
+    geoid = "char(11)",
+    name = "text",
+    geom = "geometry"
+  ))
+
+# append data to the table
+dbWriteTable(con, "table_name", r_dataset, append = TRUE)
+```
+
+
+More on data type conversions between R and SQL: 
+https://rdrr.io/cran/DBI/man/dbWriteTable.html
+
+
+## Additional commands for re-uploading and speed of operations:
+
+```{r}
+# Delete previous version of the same table - you'll need to do this if you'd like to reupload an updated version of the table
+dbExecute(con, "DROP TABLE tablename")
+
+# Create indexes on columns for faster queries - 
+var = column you want to index
+dbExecute(con, "CREATE INDEX IF NOT EXISTS tablename_var_idx ON tablename (var)")
+
+# You can index by multiple vars 
+dbExecute(con, "CREATE INDEX IF NOT EXISTS tablaname_var1_var2_var3_idx ON tablename (var1, var2, var3)")
+
+# Index using the geom column 
+dbExecute(con, "CREATE INDEX ON tablename USING GIST (geom)")
+
+# If your data is very large - you should run this command to recalculate the metadata used to speed up queries
+dbExecute(con, "VACUUM (ANALYZE) tablename")
+
+```
+
+
+More on vaccum and analyze here: https://www.postgresql.org/docs/9.5/sql-vacuum.html
+
+## Using and Uploading Spatial Data (Shape Files)
+
+Above, we covered how to handle geom columns in files that contain mostly nonspatial data. Now we’ll cover specifically dealing with shape files. 
+
+```{r}
+# read the shapefile in with the read_sf function
+nyc_cd <- str_glue("{gis_dir}/Community_Districts/Raw/nycd_18c/nycd.shp") %>% 
+  read_sf() %>% 
+  st_transform(2263)
+
+# or obtain spatial data from the tigris package
+metro_shapes <- tigris::core_based_statistical_areas(
+year = 2015, cb = TRUE, class = "sf") %>%
+  filter(GEOID %in% citi_metro_codes) %>% 
+  mutate(cbsa_name = case_when(
+    GEOID == "31080" ~ "la",
+    GEOID == "41860" ~ "sf",
+    GEOID == "33100" ~ "miami"
+  )) %>% 
+  select(cbsa = GEOID, cbsa_name, geometry)
+```
+
+
+The uploading to DB process with a shapefile is basically the same and you can follow some of the examples below - don’t forget the geom column!
+
+Resources:
+https://db.rstudio.com/dbi/
+
+FC Examples:
+
+//FC file paths//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,156 @@
+---
+title: "Map Making in R"
+date: "Last Updated: July 2019"
+output: html_document
+---
+
+***
+
+*Scroll to the bottom for a list of resources to learn more about mapping in R.*
+
+**Tip**: Play around and perfect one map - once you have the code for one, you can easily make a series of maps by replacing the underlying data.<br><br>
+
+In this brief how-to, we'll be re-creating a map of 2018 median asking rent by community district, which was published in the 2019 SOC (pg 23).
+<br><br>
+
+1. Get started by loading sf and ggplot2, and any other packages you might need.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(tidyverse)
+library(sf)
+library(ggplot2)
+```
+
+
+2. Read in the shapefile using the ```read_sf``` function. Here we are using a NYC community district shapefile obtained from the J Drive. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+gis_dir <- "J:/DEPT/REUP/GIS/Bytes"
+
+nyc_cd <- str_glue("{gis_dir}/Community_Districts/Raw/nycd_18c/nycd.shp") %>% 
+  read_sf() %>% 
+  st_transform(2263)
+```
+
+
+3. Read in your data and clean/format it as necessary. Here we also created the bins/breaks for the data we are mapping, because this can sometimes be difficult to do within ggplot.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+asking_rent <- read_csv("J:/DEPT/REUP/Data/New York City/StreetEasy/2018/Clean/streeteasy_2018.csv") %>%
+  filter(fc_geo_type %in% "cd") %>%
+  mutate(fc_geoid = as.character(fc_geoid),
+         rent_breaks = case_when(
+           rent_asking_med < 2001 ~ "1",
+           rent_asking_med < 2501 ~ "2",
+           rent_asking_med < 3001 ~ "3",
+           rent_asking_med > 3000 ~ "4")) %>%
+  select(fc_geoid, rent_asking_med, rent_breaks)
+```
+
+
+4. Back to the shapefile... Identify/assign GEO IDs that are parks, cemeteries, and airports - and those that are community districts. This will be important later when we differentiate between community districts and other geographic features using color. Parks, cemeteries, and airports are typically all grayed out or a distinct color. Alternatively, you could make these Geo IDs into NAs, which are automatically grayed out when mapped, but it would depend on whether you already have NAs in your data.
+
+```{r echo=TRUE}
+# parks/cemeteries/airports shapefile
+parks <- nyc_cd %>%
+  filter(BoroCD %in% c("164", "226", "227", "228", "335", "355", "356", "480", "481", "482", "483", "484", "595"))
+
+# community districts shapefile
+nyc_cd_ <- nyc_cd %>%
+  filter(!(BoroCD %in% c("164", "226", "227", "228", "335", "355","356", "480", "481", "482", "483", "484", "595")))
+```
+
+
+5. Join the tabular data to the spatial data by a common variable, in this case *fc_geoid*. Here we are joining the median asking rent data to the CD shapefile, so we can use spatial attributes to map rent data. 
+
+```{r echo=TRUE}
+map_asking_rent <- nyc_cd_ %>%
+  mutate(fc_geoid = as.character(BoroCD)) %>%
+  full_join(asking_rent, by = c("fc_geoid"))
+```
+
+
+6. Assign your "sources" blurb. Sources and titles can sometimes be very long. This will help us create cleaner code for the map.
+```{r echo=TRUE}
+sources_ <- "Sources: StreetEasy, NYU Furman Center"
+```
+
+
+7. Now for the map! If you've done plots or graphs with ggplot2 before, you know it can be a bit confusing until you've practiced enough. Every "+" adds or adjusts a component of the map. It is handy to have the ggplot2 cheat sheet or online resource as you edit your own map -  you can also visualize your map as an idea first and then google how to edit each component separately. Follow along with the example code below, which first maps the parks layer, and then the CD layer containing the asking rent data. <br>
+
+*Determine if you'd want to use the chunks that were commented out for your own map*<br>
+
+*Tip: to use scale_colour_brewer and create a discrete scale/legend, make sure that R considers the data "discrete" rather than "continuous" - change your data from an interger to a factor. For a continuous scale ```scale_fill_gradient``` or ```scale_fill_manual``` will work.*
+<br><br>
+
+```{r}
+ggplot() +
+  geom_sf(data = parks, fill = "#636363", aes(color = "parks"), show.legend = "color") +
+  scale_colour_manual(values = c("parks" = "#636363"), 
+                   labels = c("Parks, Airports, \n & Cemeteries"), # create a legend
+                   name = "",
+                   guide = guide_legend(override.aes = list(linetype = "blank", shape = NA))) +
+  geom_sf(data = map_asking_rent, color = "white", size = .3 , aes(fill = rent_breaks)) +
+  scale_fill_manual(values = c("#cbc9e2", "#9e9ac8", "#756bb1", "#54278f"),
+                    labels = c("$2,000 or less", "$2,001-$2,500", "$2,501-$3,000", 
+                               "More than $3,000")) +
+  coord_sf(datum = NA) + #removes the grid
+  theme_void() + #removes the default theme
+  theme(
+    #legend.title = element_text(size=9),
+    plot.title = element_text(size= 12, hjust=0.01, color = "black", face = "bold", 
+                              margin = margin(b = -0.1, t = 0.4, l = 2, unit = "cm")),
+    #plot.subtitle = element_text(size= 10, hjust=0.01, color = "black", 
+                                 #margin = margin(b = -0.1, t = 0.43, l = 2, unit = "cm")),
+    plot.caption = element_text(size=9, color = "#4e4d47", face = "italic", 
+                                margin = margin(b = 0.3, r=-99, unit = "cm") ),
+    legend.position = c(0.15, .70)) +
+  labs(
+    fill = "", #no legend title
+    title = "Figure 5: Median Asking Rent by Community District, 2018",
+    caption = sources_) 
+
+```
+
+
+8. Save your map! Specify the size and image type.
+```{r echo=TRUE}
+#ggsave(
+#  str_glue("{example_dir}/map_asking_rent_cd.png"),
+#  width = 12, height = 8)
+```
+
+9. Is my map done?
+* Consider how to handle outliers and where the cut off should be. 
+    + In the tax-commision examples linked to GitHub, we determined that fewer than 10 property sales in a community district would be too low to include, so those CDs are grayed out. Outliers were also indicated.
+    + In this example, we didn't encounter this problem in mapping - and the SOC provides context to the map in its topic sentence: "Median asking rent ranged from $1,600 in parts of the Bronx to $4,000 in parts of Manhattan."
+* Specify all items of a map in your legends.
+* Don't forget the sources.
+* Choose colors that make it easy to distinguish categories or cut offs.
+
+
+***
+
+**Examples of FC R maps on Github:**
+//internal links//
+
+<br>
+**Resources for map making in R:**
+<br>[Color Brewer][link6] - Beautify your map!
+<br>*Data Visualization: A Practical Introduction* (Healy) - This book lives in the front of the office, or ask around if you don't spot it.
+<br>[Make a Chloropleth Map][link4]
+<br>[Make a Bubble Map][link5]
+ 
+
+***
+
+This guide was created using RMarkdown - check out the guide for RMarkdown [here][link1]. 
+
+
+[link4]: https://www.r-graph-gallery.com/chloropleth-map/
+[link5]: https://www.r-graph-gallery.com/330-bubble-map-with-ggplot2/
+[link6]: http://colorbrewer2.org/#type=sequential&scheme=BuGn&n=3
+
+
+
+
